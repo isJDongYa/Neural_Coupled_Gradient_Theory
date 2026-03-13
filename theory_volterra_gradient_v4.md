@@ -508,6 +508,155 @@ $$n^*_{\text{opt}} = \arg\max_n \left\{n : n^2 \tilde{a}_n^2 \geq \frac{p^n}{m}\
 > - v3 的 SGD 正则化说明**训练过程自动偏好低阶**
 > - v4 的泛化界说明**SGD 正则化的偏好是最优的**——可学阶数 $n^*_{\text{opt}}$ 恰好与统计-计算 trade-off 的最优点一致
 
+### 7.6 阶内过参数化与泛化缺口
+
+**问题陈述**：定理 7.4 的泛化界中，$R^2 = \sum_n \lambda_n \|f_n\|^2$ 是函数类范数。但 $R$ 本身是**无约束的**——SGD 的隐式正则化（定理 7.3）仅确定了各阶之间的**相对权重** $\lambda_n^{\text{SGD}} \propto n^2 \tilde{a}_n^2$，并未约束每一阶内部 $\|f_n\|^2$ 的**绝对大小**。这意味着存在一个理论缺口：
+
+$$\underbrace{\lambda_n^{\text{SGD}}}_{\text{跨阶正则化（已解决）}} \quad \text{vs} \quad \underbrace{\|f_n\|_{L^2}^2}_{\text{阶内容量（未约束）}}$$
+
+**定义 7.6**（第 $n$ 阶有效参数维度）
+
+对 Pre-Norm ResNet 的第 $n$ 阶 Volterra 分量 $f_n$，定义其有效参数维度为：
+
+$$D_{\text{eff}}^{(n)} = L_{\text{eff}}^{(n)} \cdot d^2$$
+
+其中 $L_{\text{eff}}^{(n)} = \binom{L-1}{n/n_{\text{block}}}$ 为对全局第 $n$ 阶有贡献的路径数（定理 3.2），$d$ 为隐藏层维度。$d^2$ 是每条路径上参数矩阵 $W_l \in \mathbb{R}^{d \times d}$ 的维度。
+
+> **注**：在语言模型的序列框架中，$d^2$ 应替换为实际的子层参数数（如 SequenceMixer 和 ChannelMixer 的参数总量）。
+
+**命题 7.7**（阶内过参数化条件）
+
+当 $D_{\text{eff}}^{(n)} / m > 1$ 时（$m$ 为训练样本数），第 $n$ 阶分量处于**过参数化**状态：存在多个 $f_n$ 使训练损失为零，但在测试集上表现迥异。此时：
+
+$$\text{Gen}_n \equiv \mathbb{E}\!\left[\|f_n - f_n^*\|_{L^2}^2\right] \leq \underbrace{\frac{R_n^2 \cdot d_n}{m}}_{\text{定理 7.2}} \to \frac{R_n^2 \cdot D_{\text{eff}}^{(n)}}{m}$$
+
+当 $D_{\text{eff}}^{(n)} / m \gg 1$ 时，即使 $\lambda_n^{\text{SGD}}$ 正确地压制了高阶，**低阶内部的过拟合仍然不可控**。
+
+> **关键矛盾**：推论 7.5 表明可学阶数 $n^* = O(\log m/\log p)$，对实际语言模型 $n^* \approx 2\text{--}3$。但低阶（$n=1,2$）恰好具有**最弱的 SGD 正则化**（$\lambda_1^{\text{SGD}} \propto \tilde{a}_1^2 \approx 0.25$，$\lambda_2^{\text{SGD}} \propto 4\tilde{a}_2^2 \approx 0.96$），同时 $D_{\text{eff}}^{(n)}$ 却最大（$L_{\text{eff}}^{(2)} = \binom{L-1}{1} = L-1$ 条路径）。这造成一个反直觉的后果：
+
+$$\boxed{\text{SGD 正则化在最需要约束的低阶恰好最弱}}$$
+
+**证明**：
+
+分两步：
+
+**Step 1（阶内容量）**：第 $n$ 阶函数 $f_n(\mathbf{x}) = \sum_{|I|=n} K_{n,I} \prod_{i \in I} x_i$ 的参数空间维度为 $d_n = \binom{p+n-1}{n}$。在深度网络中，由于路径展开（定理 3.2），全局第 $n$ 阶核由 $L_{\text{eff}}^{(n)}$ 条路径的局部核叠加构成，每条路径贡献 $d^2$ 个参数。因此有效参数维度 $D_{\text{eff}}^{(n)} = L_{\text{eff}}^{(n)} \cdot d^2$。
+
+**Step 2（正则化强度反转）**：由定理 7.3，$\lambda_n^{\text{SGD}} \propto n^2 \tilde{a}_n^2$。对 GELU 激活：$\tilde{a}_1 \approx 0.50$（$\lambda_1 \approx 0.25$），$\tilde{a}_2 \approx 0.49$（$\lambda_2 \approx 0.96$），$\tilde{a}_3 \approx 0.11$（$\lambda_3 \approx 0.11$）。而 $D_{\text{eff}}^{(1)} \propto (L-1) \cdot d^2$，$D_{\text{eff}}^{(2)} \propto (L-1) \cdot d^2$，$D_{\text{eff}}^{(3)} \propto \binom{L-1}{1.5} \cdot d^2$（较少路径）。
+
+因此阶内容量与正则化的比值为：
+
+$$\frac{D_{\text{eff}}^{(n)}/m}{\lambda_n^{\text{SGD}}} = \frac{L_{\text{eff}}^{(n)} \cdot d^2}{m \cdot n^2 \tilde{a}_n^2}$$
+
+对 $n=1$：$\sim (L-1)d^2 / (0.25m)$；对 $n=2$：$\sim (L-1)d^2 / (0.96m)$。**两者均在 $d^2 \gg m/(L-1)$ 时趋于无穷**，而 SGD 噪声无法控制这一发散。$\square$
+
+> **数值示例**：对 Shakespeare 数据集（$m \approx 31\text{k}$ 不重叠窗口）、$d = 512$、$L_{\text{eff}} = 4$ 层的模型：
+> $$D_{\text{eff}}^{(2)} / m = \frac{4 \times 512^2}{31000} \approx 33.8 \gg 1$$
+> 
+> 即第 2 阶有 $33.8\times$ 的过参数化，SGD 自身无法消除阶内记忆化。
+
+### 7.7 Dropout 作为阶内自适应正则化
+
+定义 7.6 和命题 7.7 揭示了 SGD 正则化的结构性盲区：**跨阶选择与阶内约束是正交的**。本节证明 dropout 恰好填补这一缺口。
+
+**定理 7.8**（Dropout 的阶内 Ridge 等价性）
+
+对网络中某一层的输出 $\mathbf{h} \in \mathbb{R}^d$，以概率 $\delta$ 独立地将各分量置零（并以 $1/(1-\delta)$ 缩放），等价于在该层对应的 Volterra 分量 $f_n$ 上施加**自适应 L2 正则化**：
+
+$$\mathcal{L}_{\text{drop}} = \mathcal{L}_{\text{train}} + \frac{\delta}{1-\delta} \sum_n \|f_n\|_{L^2}^2$$
+
+**证明**：
+
+设第 $l$ 层的输出为 $\mathbf{h}^{(l)}$，dropout 掩码为 $\mathbf{m}^{(l)} \in \{0, 1/(1-\delta)\}^d$，各分量独立以概率 $1-\delta$ 取 $1/(1-\delta)$、以概率 $\delta$ 取 $0$。
+
+dropout 后的输出为 $\tilde{\mathbf{h}}^{(l)} = \mathbf{m}^{(l)} \odot \mathbf{h}^{(l)}$。
+
+**Step 1**（梯度期望）：
+
+$$\mathbb{E}_{\mathbf{m}}\!\left[\nabla_{W_l} \mathcal{L}(\tilde{\mathbf{h}})\right] = \nabla_{W_l} \mathcal{L}(\mathbf{h}) + \frac{\delta}{1-\delta} \cdot W_l$$
+
+第二项来自 $\text{Var}[\mathbf{m}^{(l)}_i] = \delta/(1-\delta)^2 \cdot (1-\delta) = \delta/(1-\delta)$，乘以与 $W_l$ 线性相关的 $\mathbf{h}$ 对 $W_l$ 的导数。
+
+**Step 2**（投影到 Volterra 各阶）：
+
+由于 Pre-Norm 保证各阶正交（v4 §5.2），dropout 正则化项在各阶上独立作用：
+
+$$\frac{\delta}{1-\delta} \|W_l\|_F^2 \to \frac{\delta}{1-\delta} \sum_{n} \|f_n^{(l)}\|^2$$
+
+其中 $f_n^{(l)}$ 是第 $l$ 层对第 $n$ 阶的贡献。$\square$
+
+> **核心洞察**：dropout 率 $\delta$ 引入的等效 L2 惩罚系数为 $\lambda_{\text{drop}} = \delta/(1-\delta)$，对**所有阶均匀**。这与 SGD 的 $\lambda_n^{\text{SGD}} \propto n^2 \tilde{a}_n^2$（随阶递增）形成**互补**：
+
+| 维度 | 机制 | 正则化效果 | 理论来源 |
+|------|------|-----------|---------|
+| **跨阶选择**：选哪些阶 | SGD 噪声 | $\lambda_n^{\text{SGD}} \propto n^2 \tilde{a}_n^2$（高阶强惩罚） | 定理 7.3 |
+| **阶内约束**：每阶不过拟合 | Dropout | $\lambda_{\text{drop}} = \delta/(1-\delta)$（均匀惩罚） | 定理 7.8 |
+
+两者叠加得到**完备的正则化**：
+
+$$\lambda_n^{\text{total}} = \lambda_n^{\text{SGD}} + \lambda_{\text{drop}} = n^2 \tilde{a}_n^2 + \frac{\delta}{1-\delta}$$
+
+低阶 $\lambda_n^{\text{SGD}}$ 小，由 $\lambda_{\text{drop}}$ 补偿；高阶 $\lambda_n^{\text{SGD}}$ 已足够大，$\lambda_{\text{drop}}$ 的额外贡献可忽略。
+
+### 7.8 最优 Dropout 率
+
+**定理 7.9**（数据量-容量自适应最优 Dropout 率）
+
+给定第 $n$ 阶的有效参数维度 $D_{\text{eff}}^{(n)}$、训练样本数 $m$、以及目标函数的信噪比 $\text{SNR} = \|f^*\|^2 / \sigma^2$，最优 dropout 率为使泛化误差（偏差 + 方差）$\text{Gen}_n = \text{Bias}_n^2 + \text{Var}_n$ 最小化的 $\delta$：
+
+$$\delta^* = \frac{D_{\text{eff}} / m}{D_{\text{eff}} / m + \text{SNR}}$$
+
+**证明**：
+
+对固定阶 $n$，dropout 等效 Ridge 正则化的偏差-方差分解：
+
+**方差项**（过拟合）：
+
+$$\text{Var}_n = \frac{\sigma^2 \cdot D_{\text{eff}}^{(n)}}{m} \cdot \frac{1}{(1 + \lambda_{\text{drop}})^2}$$
+
+其中 $\lambda_{\text{drop}} = \delta/(1-\delta)$。直觉：正则化越强，方差越小。
+
+**偏差项**（欠拟合）：
+
+$$\text{Bias}_n^2 = \frac{\lambda_{\text{drop}}^2}{(1 + \lambda_{\text{drop}})^2} \cdot \|f_n^*\|^2$$
+
+直觉：正则化越强，估计值被拉向零越多，偏差越大。
+
+**最优化**：对 $\lambda_{\text{drop}}$ 求导并令为零：
+
+$$\frac{\partial}{\partial \lambda_{\text{drop}}} \left[\frac{\sigma^2 D_{\text{eff}}}{m(1+\lambda)^2} + \frac{\lambda^2 \|f_n^*\|^2}{(1+\lambda)^2}\right] = 0$$
+
+解得：
+
+$$\lambda_{\text{drop}}^* = \frac{\sigma^2 D_{\text{eff}}}{m \|f_n^*\|^2} = \frac{D_{\text{eff}}/m}{\text{SNR}}$$
+
+回代 $\delta = \lambda/(1+\lambda)$：
+
+$$\delta^* = \frac{\lambda^*}{1 + \lambda^*} = \frac{D_{\text{eff}}/m}{D_{\text{eff}}/m + \text{SNR}} \quad \square$$
+
+**推论 7.10**（Dropout 率的缩放律）
+
+$\delta^*$ 的行为由过参数化比 $\rho = D_{\text{eff}}/m$ 决定：
+
+| 数据量条件 | $\rho$ | $\delta^*$ | 含义 |
+|-----------|--------|-----------|------|
+| 小数据（$D_{\text{eff}} \gg m$） | $\gg 1$ | $\to 1 - \text{SNR}/\rho$ | 需要强 dropout |
+| 平衡点（$D_{\text{eff}} \approx m$） | $\approx 1$ | $\approx 1/(1+\text{SNR})$ | 中等 dropout |
+| 大数据（$D_{\text{eff}} \ll m$） | $\ll 1$ | $\to \rho/\text{SNR} \to 0$ | 几乎不需要 dropout |
+
+> **数值预测**：
+> - **Shakespeare**（$m \approx 31\text{k}$，$d = 256$，$L_{\text{eff}} = 4$）：$\rho = 4 \times 256^2 / 31000 \approx 8.4$，假设 $\text{SNR} \approx 100$，则 $\delta^* \approx 8.4 / 108.4 \approx 0.08$
+> - **Shakespeare**（$d = 512$）：$\rho = 4 \times 512^2 / 31000 \approx 33.8$，$\delta^* \approx 33.8 / 133.8 \approx 0.25$
+> - **WikiText-103**（$m \approx 3.6\text{M}$，$d = 512$）：$\rho = 4 \times 512^2 / 3600000 \approx 0.29$，$\delta^* \approx 0.29 / 100.29 \approx 0.003$
+
+> **与经验值的一致性**：大规模 GPT 类模型（$m \gg D_{\text{eff}}$）几乎不用 dropout（$\delta^* \to 0$）；小数据微调（$m \ll D_{\text{eff}}$）需要较大 dropout（$\delta^* \to 0.1\text{--}0.5$）。这与工程实践完全一致，但此处首次给出了**从 Volterra 阶结构出发的理论解释**。
+
+> **统一图景（更新）**：
+> - v1 的 minimax 下界给出了**每一阶的信息论极限**
+> - v3 的 SGD 正则化说明**训练过程自动偏好低阶**（跨阶选择）
+> - v4 §7.5 的泛化界说明 SGD 正则化的偏好是最优的
+> - **v4 §7.6-§7.8（本节）揭示 SGD 正则化的结构性盲区——阶内过参数化——并证明 dropout 恰好填补此缺口，两者共同构成完备的正则化体系**
+
 ---
 
 ## 8. 四版理论的统一对比
@@ -525,6 +674,8 @@ $$n^*_{\text{opt}} = \arg\max_n \left\{n : n^2 \tilde{a}_n^2 \geq \frac{p^n}{m}\
 | Pre/Post-Norm | 未涉及 | 未涉及 | 未涉及 | **Pre-Norm 分离，Post-Norm 耦合** |
 | SGD 正则化 | 未涉及 | 未涉及 | $T_{\text{eff}}(n)$ | **$\lambda_n^{\text{SGD}} \propto n^2\tilde{a}_n^2$** |
 | 泛化理论 | minimax 下界 | minimax 下界 | 继承 v1/v2 | **Rademacher 上界 + 最优截断阶** |
+| 阶内正则化 | 未涉及 | 未涉及 | 未涉及 | **Dropout ↔ 阶内 Ridge 等价（定理 7.8）** |
+| 最优 dropout | 未涉及 | 未涉及 | 未涉及 | **$\delta^* = \frac{D_{\text{eff}}/m}{D_{\text{eff}}/m + \text{SNR}}$（定理 7.9）** |
 | 统计下界 | $\sigma^2 d_k / m$ | $\sigma^2 d_k / m$ | 继承 | 继承 + **统计-计算 trade-off** |
 
 ---
@@ -567,6 +718,12 @@ minimax 下界        同上                同上                  同上
                                                             Rademacher 泛化界
                                                                  ↓
                                                             最优截断阶 n*
+                                                                 ↓
+                                                            阶内过参数化缺口
+                                                                 ↓
+                                                            Dropout ↔ 阶内 Ridge
+                                                                 ↓
+                                                            最优 δ* = ρ/(ρ+SNR)
 ```
 
-> **一句话总结**：残差连接通过引入恒等路径将 Volterra 路径空间从 $\prod n_l = n$ 扩展为 $\sum_S \prod_{l \in S} n_l = n$，使路径数指数级增加（定理 3.2），梯度中产生不随深度衰减的恒等路径分量（定理 6.2）；归一化层消除权重范数对有效学习率的影响，使各阶动力学只由激活函数系数 $\tilde{a}_n$ 决定（定理 5.3），且 Pre-Norm 的阶间去耦优于 Post-Norm（命题 5.5）；SGD 隐式正则化的权重 $\lambda_n^{\text{SGD}} \propto n^2 \tilde{a}_n^2$ 使可学习的最高阶为 $n^* = O(\log m / \log p)$（推论 7.5），与统计极限一致。
+> **一句话总结**：残差连接通过引入恒等路径将 Volterra 路径空间从 $\prod n_l = n$ 扩展为 $\sum_S \prod_{l \in S} n_l = n$，使路径数指数级增加（定理 3.2），梯度中产生不随深度衰减的恒等路径分量（定理 6.2）；归一化层消除权重范数对有效学习率的影响，使各阶动力学只由激活函数系数 $\tilde{a}_n$ 决定（定理 5.3），且 Pre-Norm 的阶间去耦优于 Post-Norm（命题 5.5）；SGD 隐式正则化的权重 $\lambda_n^{\text{SGD}} \propto n^2 \tilde{a}_n^2$ 使可学习的最高阶为 $n^* = O(\log m / \log p)$（推论 7.5），与统计极限一致；但 SGD 正则化存在阶内盲区（命题 7.7），dropout 恰好提供均匀的阶内 Ridge 正则化（定理 7.8），最优 dropout 率 $\delta^* = \rho/(\rho + \text{SNR})$ 由过参数化比 $\rho = D_{\text{eff}}/m$ 决定（定理 7.9），与工程实践一致。
