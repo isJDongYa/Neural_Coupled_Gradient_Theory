@@ -54,6 +54,8 @@ NCGT 由四个逐步推广的版本构成：
 | `theory_volterra_gradient_v2.md` | NCGT-II：两层任意激活 |
 | `theory_volterra_gradient_v3.md` | NCGT-III：L 层 plain 网络 |
 | `theory_volterra_gradient_v4.md` | NCGT-IV：ResNet + 归一化 + 泛化 |
+| `theory_volterra_gradient_v5.md` |  |
+| `theory_volterra_gradient_v6.md` | |
 
 ### 验证代码（最终版本）
 
